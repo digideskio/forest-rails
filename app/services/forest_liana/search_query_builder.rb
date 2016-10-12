@@ -19,6 +19,12 @@ module ForestLiana
       if @params[:search]
         conditions = []
 
+        schema.fields.each do |field|
+          if field.try(:[], :search)
+            field[:search].call(@resource, conditions, @params[:search])
+          end
+        end
+
         @resource.columns.each_with_index do |column, index|
           if column.name == 'id'
             if column.type == :integer
@@ -65,10 +71,22 @@ module ForestLiana
         conditions = []
         @params[:filter].each do |field, values|
           next if association?(field)
-          values.split(',').each do |value|
-            operator, value = OperatorValueParser.parse(value)
-            conditions << OperatorValueParser.get_condition(field, operator,
-              value, @resource)
+
+          # NOTICE: retrieve the field from Forest schema to check if this is a
+          # Smart field.
+          field_schema = schema.try(:fields).try(:find) {
+            |f| f[:field] == field.to_sym
+          }
+
+          # NOTICE: Search on a Smart field calls the lambda :search
+          if field_schema.try(:[], :search)
+            field_schema[:search].call(@resource, conditions, values)
+          else
+            values.split(',').each do |value|
+              operator, value = OperatorValueParser.parse(value)
+              conditions << OperatorValueParser.get_condition(field, operator,
+                value, @resource)
+            end
           end
         end
 
@@ -185,5 +203,8 @@ module ForestLiana
       @records
     end
 
+    def schema
+      ForestLiana.apimap.find {|x| x.name == @resource.table_name}
+    end
   end
 end
